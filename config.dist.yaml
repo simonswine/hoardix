@@ -1,0 +1,12 @@
+storage:
+  s3:
+   bucket: swine-nixos-cache
+   region: eu-central-1
+   access_key: swine-nixos-cache
+   secret_key: <redacted>
+caches:
+  nixos:
+    private_key: nixos.cachix.swine.de-1:<redacted>
+    substituters:
+      - url: "https://cache.nixos.org"
+        public_key: cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
