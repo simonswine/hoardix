@@ -20,12 +20,15 @@ import (
 	"github.com/simonswine/hoardix/pkg/cache"
 	"github.com/simonswine/hoardix/pkg/httputil"
 	"github.com/simonswine/hoardix/pkg/storage"
+	"github.com/simonswine/hoardix/pkg/token"
 	"github.com/simonswine/hoardix/pkg/validate"
 )
 
 type Config struct {
-	Storage storage.Config `yaml:"storage"`
-	Caches  map[string]cache.Config
+	BaseDomain string                  `yaml:"base_domain,omitempty"`
+	Tokens     []token.Config          `yaml:"tokens,omitempty"`
+	Storage    storage.Config          `yaml:"storage,omitempty"`
+	Caches     map[string]cache.Config `yaml:"caches,omitempty"`
 }
 
 func (c *Config) String() string {
@@ -136,8 +139,20 @@ func (a *App) handleCacheNarinfo(w http.ResponseWriter, r *http.Request) {
 	cache.HandleCacheNarinfo(w, r)
 }
 
+func (a *App) handleCacheRead(w http.ResponseWriter, r *http.Request) {
+	cache := a.cacheOrNotFound(w, r)
+	if cache == nil {
+		return
+	}
+	cache.HandleCacheRead(w, r)
+}
+
 func (a *App) initRouter() http.Handler {
 	router := mux.NewRouter().StrictSlash(true)
+
+	router.Use(token.New(a.cfg.Tokens).Middleware)
+
+	router.Host(fmt.Sprintf("{cache_name:[a-z0-9-_]+}.%s", a.cfg.BaseDomain)).HandlerFunc(a.handleCacheRead)
 
 	apiRouter := router.PathPrefix("/api/v1").Subrouter()
 	apiRouter.HandleFunc("/cache", a.handleCacheInfo).Methods("GET")
@@ -220,4 +235,8 @@ func (a *App) NarinfoCache() cache.NarinfoCache {
 
 func (a *App) Storage() storage.Storage {
 	return a.storage
+}
+
+func (a *App) BaseDomain() string {
+	return a.cfg.BaseDomain
 }

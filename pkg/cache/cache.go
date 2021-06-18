@@ -13,7 +13,9 @@ import (
 	"io/ioutil"
 	"net/http"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/numtide/go-nix/hash"
 	"github.com/numtide/go-nix/nar/narinfo"
@@ -26,9 +28,12 @@ import (
 	"github.com/simonswine/hoardix/pkg/compression"
 	"github.com/simonswine/hoardix/pkg/httputil"
 	"github.com/simonswine/hoardix/pkg/storage"
+	"github.com/simonswine/hoardix/pkg/token"
 )
 
 type Config struct {
+	Priority     *int8               `yaml:"priority,omitempty"`
+	Public       *bool               `yaml:"public,omitempty"`
 	PrivateKey   PrivateKey          `yaml:"private_key,omitempty"`
 	Substituters []ConfigSubstituter `yaml:"substituters,omitempty"`
 }
@@ -125,6 +130,7 @@ type Cache struct {
 	storage      storage.Storage
 	substituters *substituters
 	narinfoCache NarinfoCache
+	uri          string
 }
 
 type NarinfoCache interface {
@@ -133,6 +139,7 @@ type NarinfoCache interface {
 }
 
 type App interface {
+	BaseDomain() string
 	NarinfoCache() NarinfoCache
 	Logger() zerolog.Logger
 	Storage() storage.Storage
@@ -145,6 +152,7 @@ func New(name string, cfg *Config, app App) (*Cache, error) {
 		logger:       app.Logger().With().Str("cache", name).Logger(),
 		storage:      storage.WithPrefix(app.Storage(), filepath.Join("cache", name)),
 		narinfoCache: app.NarinfoCache(),
+		uri:          fmt.Sprintf("https://%s.%s", name, app.BaseDomain()),
 	}
 
 	var err error
@@ -166,14 +174,30 @@ type cacheInfo struct {
 	GithubUsername    string   `json:"githubUsername"`
 }
 
+func capitalizeString(s string) string {
+	for index, value := range s {
+		return string(unicode.ToUpper(value)) + s[index+1:]
+	}
+	return ""
+}
+
 func (c *Cache) HandleCacheInfo(w http.ResponseWriter, r *http.Request) {
+	if !c.verifyAuthorized(token.PermissionRead, w, r) {
+		return
+	}
+
+	perm := token.PermissionFromContext(r.Context())
+	if perm == token.PermissionAnonymous {
+		perm = token.PermissionRead
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 
 	info := cacheInfo{
 		Name:       c.name,
-		URI:        fmt.Sprintf("https://%s.cachix.swine.de", c.name),
+		URI:        c.uri,
 		IsPublic:   false,
-		Permission: "Read",
+		Permission: capitalizeString(perm.String()),
 		PublicSigningKeys: []string{
 			c.cfg.PrivateKey.PublicKey().String(),
 		},
@@ -208,7 +232,54 @@ func (c *Cache) lookupNarinfo(ctx context.Context, hash string) (*narInfo, error
 	return narInfo, nil
 }
 
+var reCacheRead = regexp.MustCompile(`^/([a-z0-9]+\.narinfo|nar/[a-z0-9]+\.nar\.xz)$`)
+
+func (c *Cache) Priority() int8 {
+	if c.cfg.Priority == nil {
+		return 41
+	}
+	return *c.cfg.Priority
+}
+
+func (c *Cache) HandleCacheRead(w http.ResponseWriter, r *http.Request) {
+	if !c.verifyAuthorized(token.PermissionRead, w, r) {
+		return
+	}
+
+	if r.URL.Path == "/nix-cache-info" {
+		_, _ = w.Write([]byte(fmt.Sprintf(strings.Join([]string{
+			"StoreDir: %s",
+			"WantMassQuery: 1",
+			"Priority: %d",
+			"",
+		}, "\n"), nixpath.StoreDir, c.Priority())))
+		return
+	} else if !reCacheRead.MatchString(r.URL.Path) {
+		http.NotFound(w, r)
+		return
+	}
+
+	body, err := c.storage.Get(r.Context(), r.URL.Path)
+	if err != nil {
+		httputil.WriteError(w, r, &httputil.Error{
+			Err: err,
+		})
+		return
+	}
+	defer body.Close()
+	if _, err := io.Copy(w, body); err != nil {
+		httputil.WriteError(w, r, &httputil.Error{
+			Err: err,
+		})
+		return
+	}
+}
+
 func (c *Cache) HandleCacheNarinfo(w http.ResponseWriter, r *http.Request) {
+	if !c.verifyAuthorized(token.PermissionWrite, w, r) {
+		return
+
+	}
 	var inputHashes []string
 	if err := json.NewDecoder(r.Body).Decode(&inputHashes); err != nil {
 		httputil.WriteError(w, r, &httputil.Error{
@@ -239,8 +310,11 @@ func (c *Cache) HandleCacheNarinfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *Cache) HandleUploadNar(w http.ResponseWriter, r *http.Request) {
-	bodyHash := sha256.New()
+	if !c.verifyAuthorized(token.PermissionWrite, w, r) {
+		return
+	}
 
+	bodyHash := sha256.New()
 	data, err := ioutil.ReadAll(io.TeeReader(r.Body, bodyHash))
 	if err != nil {
 		httputil.WriteError(w, r, &httputil.Error{Err: fmt.Errorf("error reading request body: %w", err)})
@@ -273,7 +347,27 @@ func (c *Cache) HandleUploadNar(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (c *Cache) verifyAuthorized(minimumPermission token.Permission, w http.ResponseWriter, r *http.Request) bool {
+	existingPermission := token.PermissionFromContext(r.Context())
+	if minimumPermission == token.PermissionRead && c.cfg.Public != nil && *c.cfg.Public {
+		return true
+	}
+	if existingPermission >= minimumPermission {
+		return true
+	}
+
+	httputil.WriteError(w, r, &httputil.Error{
+		StatusCode: http.StatusUnauthorized,
+		Msg:        "not authorized",
+	})
+	return false
+}
+
 func (c *Cache) HandleUploadNarinfo(w http.ResponseWriter, r *http.Request) {
+	if !c.verifyAuthorized(token.PermissionWrite, w, r) {
+		return
+	}
+
 	var inputNarinfo = struct {
 		CStoreHash   string   `json:"cStoreHash"`
 		CStoreSuffix string   `json:"cStoreSuffix"`

@@ -1,3 +1,4 @@
+base_domain: localhost
 storage:
   s3:
    bucket: swine-nixos-cache
