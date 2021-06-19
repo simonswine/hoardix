@@ -247,7 +247,12 @@ func (a *App) Run() error {
 			Msg("")
 	})
 
-	if err := http.ListenAndServe(":5000", logHandler(accessHandler(a.initRouter()))); err != nil {
+	listenPort := 5000
+	if a.cfg.ListenPort != nil {
+		listenPort = *a.cfg.ListenPort
+	}
+
+	if err := http.ListenAndServe(fmt.Sprintf(":%d", listenPort), logHandler(accessHandler(a.initRouter()))); err != nil {
 		a.logger.Fatal().Err(err).Msg("error listening to HTTP")
 	}
 
