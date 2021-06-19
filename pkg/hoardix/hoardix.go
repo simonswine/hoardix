@@ -152,7 +152,12 @@ func (a *App) initRouter() http.Handler {
 
 	router.Use(token.New(a.cfg.Tokens).Middleware)
 
-	router.Host(fmt.Sprintf("{cache_name:[a-z0-9-_]+}.%s", a.cfg.BaseDomain)).HandlerFunc(a.handleCacheRead)
+	// check hostname for cache name
+	hostMatcher := fmt.Sprintf("{cache_name:[a-z0-9-_]+}.%s", a.cfg.BaseDomain)
+
+	router.Path(`/nix-cache-info`).Host(hostMatcher).Methods("GET").HandlerFunc(a.handleCacheRead)
+	router.Path(`/{path_narinfo:[a-z0-9-_]+}.narinfo`).Host(hostMatcher).Methods("GET").HandlerFunc(a.handleCacheRead)
+	router.Path(`/nar/{path_nar:[a-z0-9-_]+}.nar.xz`).Host(hostMatcher).Methods("GET").HandlerFunc(a.handleCacheRead)
 
 	apiRouter := router.PathPrefix("/api/v1").Subrouter()
 	apiRouter.HandleFunc("/cache", a.handleCacheInfo).Methods("GET")
