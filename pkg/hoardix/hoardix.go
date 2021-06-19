@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -25,10 +26,33 @@ import (
 )
 
 type Config struct {
-	BaseDomain string                  `yaml:"base_domain,omitempty"`
+	BaseURL    URL                     `yaml:"base_url,omitempty"`
+	ListenPort *int                    `yaml:"listen_port,omitempty"`
 	Tokens     []token.Config          `yaml:"tokens,omitempty"`
 	Storage    storage.Config          `yaml:"storage,omitempty"`
 	Caches     map[string]cache.Config `yaml:"caches,omitempty"`
+}
+
+type URL struct {
+	*url.URL
+}
+
+func (u URL) MarshalYAML() (interface{}, error) {
+	return u.URL.String(), nil
+}
+
+func (u *URL) UnmarshalYAML(value *yaml.Node) error {
+	var strValue string
+	if err := value.Decode(&strValue); err != nil {
+		return err
+	}
+
+	url, err := url.Parse(strValue)
+	if err != nil {
+		return err
+	}
+	u.URL = url
+	return nil
 }
 
 func (c *Config) String() string {
@@ -153,7 +177,7 @@ func (a *App) initRouter() http.Handler {
 	router.Use(token.New(a.cfg.Tokens).Middleware)
 
 	// check hostname for cache name
-	hostMatcher := fmt.Sprintf("{cache_name:[a-z0-9-_]+}.%s", a.cfg.BaseDomain)
+	hostMatcher := fmt.Sprintf("{cache_name:[a-z0-9-_]+}.%s", a.cfg.BaseURL.Hostname())
 
 	router.Path(`/nix-cache-info`).Host(hostMatcher).Methods("GET").HandlerFunc(a.handleCacheRead)
 	router.Path(`/{path_narinfo:[a-z0-9-_]+}.narinfo`).Host(hostMatcher).Methods("GET").HandlerFunc(a.handleCacheRead)
@@ -242,6 +266,7 @@ func (a *App) Storage() storage.Storage {
 	return a.storage
 }
 
-func (a *App) BaseDomain() string {
-	return a.cfg.BaseDomain
+func (a *App) BaseURL() *url.URL {
+	var u = *a.cfg.BaseURL.URL
+	return &u
 }

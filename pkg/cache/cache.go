@@ -12,6 +12,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"unicode"
@@ -138,20 +139,23 @@ type NarinfoCache interface {
 }
 
 type App interface {
-	BaseDomain() string
+	BaseURL() *url.URL
 	NarinfoCache() NarinfoCache
 	Logger() zerolog.Logger
 	Storage() storage.Storage
 }
 
 func New(name string, cfg *Config, app App) (*Cache, error) {
+	url := app.BaseURL()
+	url.Host = fmt.Sprintf("%s.%s:%s", name, url.Hostname(), url.Port())
+
 	c := &Cache{
 		name:         name,
 		cfg:          cfg,
 		logger:       app.Logger().With().Str("cache", name).Logger(),
 		storage:      storage.WithPrefix(app.Storage(), filepath.Join("cache", name)),
 		narinfoCache: app.NarinfoCache(),
-		uri:          fmt.Sprintf("https://%s.%s", name, app.BaseDomain()),
+		uri:          url.String(),
 	}
 
 	var err error
