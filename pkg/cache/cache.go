@@ -13,7 +13,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"unicode"
 
@@ -232,8 +231,6 @@ func (c *Cache) lookupNarinfo(ctx context.Context, hash string) (*narInfo, error
 	return narInfo, nil
 }
 
-var reCacheRead = regexp.MustCompile(`^/([a-z0-9]+\.narinfo|nar/[a-z0-9]+\.nar\.xz)$`)
-
 func (c *Cache) Priority() int8 {
 	if c.cfg.Priority == nil {
 		return 41
@@ -242,10 +239,12 @@ func (c *Cache) Priority() int8 {
 }
 
 func (c *Cache) HandleCacheRead(w http.ResponseWriter, r *http.Request) {
+	// verify authorization
 	if !c.verifyAuthorized(token.PermissionRead, w, r) {
 		return
 	}
 
+	// return cache info
 	if r.URL.Path == "/nix-cache-info" {
 		_, _ = w.Write([]byte(fmt.Sprintf(strings.Join([]string{
 			"StoreDir: %s",
@@ -254,18 +253,20 @@ func (c *Cache) HandleCacheRead(w http.ResponseWriter, r *http.Request) {
 			"",
 		}, "\n"), nixpath.StoreDir, c.Priority())))
 		return
-	} else if !reCacheRead.MatchString(r.URL.Path) {
-		http.NotFound(w, r)
-		return
 	}
 
+	// check storage for content
 	body, err := c.storage.Get(r.Context(), r.URL.Path)
-	if err != nil {
+	if c.storage.IsObjNotFoundErr(err) {
+		http.NotFound(w, r)
+		return
+	} else if err != nil {
 		httputil.WriteError(w, r, &httputil.Error{
 			Err: err,
 		})
 		return
 	}
+
 	defer body.Close()
 	if _, err := io.Copy(w, body); err != nil {
 		httputil.WriteError(w, r, &httputil.Error{
