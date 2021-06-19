@@ -1,3 +1,19 @@
+= Hoardix
+:release-version: 0.1.0
+:url-gh: https://github.com/simonswine
+:url-repo: {url-gh}/hoardix
+:url-cachix: https://cachix.org
+:url-cache-nix: https://nixos.wiki/wiki/Binary_Cache
+:image-url-screenshot: https://raw.githubusercontent.com/asciidoctor/asciidoctor/master/screenshot.png
+
+{url-repo}[Hoardix] is a {url-cachix}[Cachix] API compatible {url-cache-nix}[binary cache for Nix] derivations.
+
+== Usage
+
+=== Configuration
+
+[source,yaml]
+----
 # base url of how the cache is reached
 #
 # The subdomain api.$base_domain will be used to communicate with the cache
@@ -43,3 +59,19 @@ caches:
         public_key: cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
 
 # TODO: Add tokens
+----
+
+=== Docker
+
+[subs="attributes"]
+----
+$ docker run simonswine/hoardix:v{release-version}
+----
+
+=== Push first derivation
+
+==== Setup cache
+
+==== Push derivation
+
+==== Get derivation
