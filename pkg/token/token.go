@@ -52,13 +52,19 @@ func (h *Handler) getPermission(r *http.Request) (perm Permission) {
 	}
 	log = log.Str("cache_name", cacheName)
 
-	// no valid token found
-	authHeader := strings.Split(r.Header.Get("Authorization"), "Bearer ")
-	if len(authHeader) != 2 {
+	var authToken Token
+	bearerTokenHeader := strings.Split(r.Header.Get("Authorization"), "Bearer ")
+	if _, token, ok := r.BasicAuth(); ok {
+		// handle basic auth
+		authToken = Token(token)
+	} else if len(bearerTokenHeader) == 2 {
+		// handle bearer token
+		authToken = Token(bearerTokenHeader[1])
+	} else {
+		// anonynmous by that point
 		return PermissionAnonymous
 	}
 
-	authToken := Token(authHeader[1])
 	for _, c := range h.cfg {
 		if c.Static != nil {
 			matchedToken := false
