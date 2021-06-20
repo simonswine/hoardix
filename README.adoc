@@ -91,6 +91,8 @@ $ docker run -p 5000:5000 simonswine/hoardix:v{release-version}
 
 ==== Setup cache
 
+// Tested these and the following steps using docker run -t -i --net host nixos/nix:2.3.11
+
 [source,shell]
 ----
 $ CACHIX_AUTH_TOKEN=insecure-write-token cachix --host http://localhost:5000 use my-cache
