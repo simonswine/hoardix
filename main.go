@@ -9,7 +9,7 @@ import (
 
 func main() {
 	app := hoardix.New()
-	if err := app.Run(); err != nil {
+	if err := app.Run(os.Args); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}

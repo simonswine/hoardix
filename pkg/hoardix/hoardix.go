@@ -5,13 +5,12 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os/signal"
-	"runtime"
-	"strconv"
-
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
+	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +22,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/hlog"
 	"github.com/rs/zerolog/log"
+	"github.com/urfave/cli/v2"
 	"gopkg.in/yaml.v3"
 
 	"github.com/simonswine/hoardix/pkg/cache"
@@ -33,6 +33,7 @@ import (
 )
 
 var (
+	appName         string = "hoardix"
 	version         string = "unknown"
 	commitHash      string = "unknown"
 	commitTimestamp string = "unknown"
@@ -101,6 +102,8 @@ func readConfigFromFile(path string) (*Config, error) {
 type App struct {
 	cfg *Config
 
+	cli *cli.App
+
 	storage storage.Storage
 	logger  zerolog.Logger
 
@@ -110,16 +113,34 @@ type App struct {
 }
 
 func New() *App {
+
 	logger :=
 		log.Output(zerolog.ConsoleWriter{
 			Out:        os.Stderr,
 			TimeFormat: time.RFC3339Nano,
 		})
 
-	return &App{
+	app := &App{
+		cli: &cli.App{
+			Name: appName,
+			Authors: []*cli.Author{
+				{Name: "Christian Simon", Email: fmt.Sprintf("simon+%s@swine.de", appName)},
+			},
+			Version: version,
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:  "config-file",
+					Value: "config.yaml",
+					Usage: "path to configuration file",
+				},
+			},
+			Usage: "Hoardix self-hosted Nix derivation binary cache",
+		},
 		logger: logger,
 		caches: make(map[string]*cache.Cache),
 	}
+	app.cli.Action = app.run
+	return app
 }
 
 func (a *App) handleCacheInfo(w http.ResponseWriter, r *http.Request) {
@@ -206,7 +227,11 @@ func (a *App) initRouter() http.Handler {
 
 const metricNamespace = "hoardix"
 
-func (a *App) Run() error {
+func (a *App) Run(args []string) error {
+	return a.cli.Run(args)
+}
+
+func (a *App) run(ctx *cli.Context) error {
 	// parse timestamp to a readable format
 	if ts, err := strconv.ParseInt(commitTimestamp, 10, 64); err == nil {
 		promauto.NewGauge(
@@ -231,7 +256,7 @@ func (a *App) Run() error {
 	a.logger.Info().Str("version", version).Str("commit", commitHash).Str("commit_time", commitTimestamp).Str("go_version", runtime.Version()).Msg("starting hoardix")
 
 	var err error
-	a.cfg, err = readConfigFromFile("config.yaml")
+	a.cfg, err = readConfigFromFile(ctx.String("config-file"))
 	if err != nil {
 		return err
 	}
