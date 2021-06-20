@@ -17,7 +17,7 @@ dockers:
   - dockerfile: Dockerfile
     image_templates:
       - "simonswine/hoardix:latest"
-      - "simonswine/hoardix:{{ .Version }}"
+      - "simonswine/hoardix:v{{ .Version }}"
     goos: linux
     goarch: amd64
     extra_files:
