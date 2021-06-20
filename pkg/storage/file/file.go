@@ -43,7 +43,7 @@ func (f *File) Upload(ctx context.Context, name string, r io.Reader) error {
 func (f *File) Exists(ctx context.Context, name string) (bool, error) {
 	info, err := os.Stat(filepath.Join(f.cfg.Path, name))
 	if err != nil {
-		if os.IsNotExist(err) {
+		if f.IsObjNotFoundErr(err) {
 			return false, nil
 		}
 		return false, fmt.Errorf("stat %s: %w", filepath.Join(f.cfg.Path, name), err)
@@ -95,8 +95,9 @@ func (f *File) GetRange(_ context.Context, name string, off, length int64) (io.R
 }
 
 func (file *File) IsObjNotFoundErr(err error) bool {
-	return os.IsNotExist(err)
+	return errors.Is(err, os.ErrNotExist)
 }
+
 func New(cfg *Config) *File {
 	return &File{
 		cfg: cfg,

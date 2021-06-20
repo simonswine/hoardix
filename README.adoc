@@ -86,13 +86,46 @@ tokens:
 
 [subs="attributes"]
 ----
-$ docker run simonswine/hoardix:v{release-version}
+$ docker run -p 5000:5000 simonswine/hoardix:v{release-version}
 ----
-
-=== Push first derivation
 
 ==== Setup cache
 
-==== Push derivation
+[source,shell]
+----
+$ CACHIX_AUTH_TOKEN=insecure-write-token cachix --host http://localhost:5000 use my-cache
+----
+
+==== Build hello world derivation and push it to the cache
+
+[source,shell]
+----
+$ cat > my-build.nix <<EOF
+{ nixpkgs ? import <nixpkgs> {} }:
+let
+  inherit (nixpkgs) pkgs;
+in
+  pkgs.writeText "hello.txt" "hello-hoardix"
+EOF
+
+$ CACHIX_AUTH_TOKEN=insecure-write-token cachix --host http://localhost:5000 push my-cache $(nix-build --no-out-link my-build.nix)
+----
 
 ==== Get derivation
+
+[source,shell]
+----
+$ STORE_PATH=$(nix-build --no-out-link my-build.nix)
+
+# Delete existing derivation
+$ nix-store --delete $STORE_PATH
+1 store paths deleted, 0.00 MiB freed
+
+# Download it again from the cache
+$ nix-store -r $STORE_PATH
+these paths will be fetched (0.00 MiB download, 0.00 MiB unpacked):
+  /nix/store/98mzbdzn6vi2r65l8lqfjpp4sqpqrrv6-hello.txt
+copying path '/nix/store/98mzbdzn6vi2r65l8lqfjpp4sqpqrrv6-hello.txt' from 'http://my-cache.localhost:5000'...
+warning: you did not specify '--add-root'; the result might be removed by the garbage collector
+/nix/store/98mzbdzn6vi2r65l8lqfjpp4sqpqrrv6-hello.txt
+----

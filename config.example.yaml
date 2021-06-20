@@ -7,7 +7,11 @@ storage:
 # map of caches with the key being the subdomain of the cache.
 caches:
   my-cache:
-    private_key: "my-cache.localhost-1:insecure/private/key/do/not/use/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=="
+    # !!! Under no circumstances use this key
+    # $ nix-store \
+    #   --generate-binary-cache-key private-cache.cachix.my-domain.com \
+    #   /dev/stdout /dev/null
+    private_key: "insecure.my-cache.localhost-1:3txeONptDjGaMEoF2g+7lEyBhqA6/Ghqjg13uOxgQb/D7iYzR1c2zbqknpKhjwMEFqomOjaztmJpEtE9y5YP+w=="
     substituters:
       - url: "https://cache.nixos.org"
         public_key: cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
