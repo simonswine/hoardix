@@ -1,0 +1,42 @@
+before:
+  hooks:
+    - go mod tidy
+    - go mod verify
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    ldflags:
+      - -s -w -X github.com/simonswine/hoardix/pkg/hoardix.version={{.Version}} -X github.com/simonswine/hoardix/pkg/hoardix.commitHash={{.Commit}} -X github.com/simonswine/hoardix/pkg/hoardix.commitTimestamp={{.CommitTimestamp}}
+
+dockers:
+  - dockerfile: Dockerfile
+    image_templates:
+      - "simonswine/hoardix:latest"
+      - "simonswine/hoardix:{{ .Version }}"
+    goos: linux
+    goarch: amd64
+    extra_files:
+      - config.example.yaml
+
+archives:
+  - replacements:
+      darwin: Darwin
+      linux: Linux
+      windows: Windows
+      386: i386
+      amd64: x86_64
+checksum:
+  name_template: 'checksums.txt'
+snapshot:
+  name_template: "{{ .Tag }}-next"
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
