@@ -3,7 +3,11 @@ package hoardix
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
+	"os/signal"
+	"runtime"
+	"strconv"
 
 	"net/http"
 	"net/url"
@@ -13,6 +17,9 @@ import (
 
 	"github.com/allegro/bigcache/v3"
 	"github.com/gorilla/mux"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/hlog"
 	"github.com/rs/zerolog/log"
@@ -25,12 +32,19 @@ import (
 	"github.com/simonswine/hoardix/pkg/validate"
 )
 
+var (
+	version         string = "unknown"
+	commitHash      string = "unknown"
+	commitTimestamp string = "unknown"
+)
+
 type Config struct {
-	BaseURL    URL                     `yaml:"base_url,omitempty"`
-	ListenPort *int                    `yaml:"listen_port,omitempty"`
-	Tokens     []token.Config          `yaml:"tokens,omitempty"`
-	Storage    storage.Config          `yaml:"storage,omitempty"`
-	Caches     map[string]cache.Config `yaml:"caches,omitempty"`
+	BaseURL           URL                     `yaml:"base_url,omitempty"`
+	ListenPort        *int                    `yaml:"listen_port,omitempty"`
+	MetricsListenPort *int                    `yaml:"metrics_listen_port,omitempty"`
+	Tokens            []token.Config          `yaml:"tokens,omitempty"`
+	Storage           storage.Config          `yaml:"storage,omitempty"`
+	Caches            map[string]cache.Config `yaml:"caches,omitempty"`
 }
 
 type URL struct {
@@ -107,9 +121,6 @@ func New() *App {
 		caches: make(map[string]*cache.Cache),
 	}
 }
-
-//api/v1/cache/packer-kubernetes-hcloud
-//api/v1/cache/packer-kubernetes-hcloud/narinfo
 
 func (a *App) handleCacheInfo(w http.ResponseWriter, r *http.Request) {
 	cache := a.cacheOrNotFound(w, r)
@@ -193,7 +204,32 @@ func (a *App) initRouter() http.Handler {
 	return router
 }
 
+const metricNamespace = "hoardix"
+
 func (a *App) Run() error {
+	// parse timestamp to a readable format
+	if ts, err := strconv.ParseInt(commitTimestamp, 10, 64); err == nil {
+		promauto.NewGauge(
+			prometheus.GaugeOpts{
+				Namespace: metricNamespace,
+				Name:      "commit_date_timestamp",
+				Help:      "hoardix's commit date in unix timestamp",
+			},
+		).Set(float64(ts))
+		commitTimestamp = time.Unix(ts, 0).Format(time.RFC3339)
+	}
+
+	promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace:   metricNamespace,
+			Name:        "info",
+			Help:        "hoardix's build version and commit hash",
+			ConstLabels: prometheus.Labels{"version": version, "commit_hash": commitHash},
+		},
+	).Set(1)
+
+	a.logger.Info().Str("version", version).Str("commit", commitHash).Str("commit_time", commitTimestamp).Str("go_version", runtime.Version()).Msg("starting hoardix")
+
 	var err error
 	a.cfg, err = readConfigFromFile("config.yaml")
 	if err != nil {
@@ -247,14 +283,62 @@ func (a *App) Run() error {
 			Msg("")
 	})
 
+	// signal handler
+	ctxSignal, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	listenPort := 5000
 	if a.cfg.ListenPort != nil {
 		listenPort = *a.cfg.ListenPort
 	}
-
-	if err := http.ListenAndServe(fmt.Sprintf(":%d", listenPort), logHandler(accessHandler(a.initRouter()))); err != nil {
-		a.logger.Fatal().Err(err).Msg("error listening to HTTP")
+	srv := &http.Server{
+		Addr:    fmt.Sprintf(":%d", listenPort),
+		Handler: logHandler(accessHandler(a.initRouter())),
 	}
+	go func() {
+		if err = srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			a.logger.Fatal().Err(err).Msgf("error listening on '%s' for HTTP traffic", srv.Addr)
+		}
+	}()
+
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("/metrics", promhttp.HandlerFor(
+		prometheus.DefaultGatherer,
+		promhttp.HandlerOpts{
+			// Opt into OpenMetrics to support exemplars.
+			EnableOpenMetrics: true,
+		},
+	))
+	metricsListenPort := 9500
+	if a.cfg.MetricsListenPort != nil {
+		metricsListenPort = *a.cfg.MetricsListenPort
+	}
+	metricsSrv := &http.Server{
+		Addr:    fmt.Sprintf(":%d", metricsListenPort),
+		Handler: metricsMux,
+	}
+	go func() {
+		if err = metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			a.logger.Fatal().Err(err).Msgf("error listening on '%s' for metrics", srv.Addr)
+		}
+	}()
+
+	// wait till signal to shutdown
+	<-ctxSignal.Done()
+
+	ctxStopTimeout, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer func() {
+		cancel()
+	}()
+
+	if err = srv.Shutdown(ctxStopTimeout); err != nil && err != http.ErrServerClosed {
+		return fmt.Errorf("error shutting down http server: %w", err)
+	}
+	if err = metricsSrv.Shutdown(ctxStopTimeout); err != nil && err != http.ErrServerClosed {
+		return fmt.Errorf("error shutting down metrics server: %w", err)
+	}
+
+	a.logger.Info().Msg("http servers exited properly")
 
 	return nil
 }

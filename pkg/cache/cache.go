@@ -21,6 +21,8 @@ import (
 	"github.com/numtide/go-nix/nar/narinfo"
 	"github.com/numtide/go-nix/nixbase32"
 	"github.com/numtide/go-nix/nixpath"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/hlog"
 	"gopkg.in/yaml.v3"
@@ -29,6 +31,37 @@ import (
 	"github.com/simonswine/hoardix/pkg/httputil"
 	"github.com/simonswine/hoardix/pkg/storage"
 	"github.com/simonswine/hoardix/pkg/token"
+)
+
+const metricNamespace = "hoardix"
+
+var (
+	metricNarinfoCacheHits = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: metricNamespace,
+			Name:      "narinfo_metadata_cache_hits",
+			Help:      "How many narinfo request have hit the metadata cache",
+		},
+		[]string{"cache_name", "substitutor"},
+	)
+	metricNarinfoCacheMisses = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: metricNamespace,
+			Name:      "narinfo_metadata_cache_misses",
+			Help:      "How many narinfo request have missed the metadata cache",
+		},
+		[]string{"cache_name"},
+	)
+
+	metricNarUploadBytes = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: metricNamespace,
+			Name:      "nar_upload_size_bytes",
+			Help:      "How big was a nar upload in bytes",
+			Buckets:   prometheus.ExponentialBuckets(1024, 2, 10),
+		},
+		[]string{"cache_name"},
+	)
 )
 
 type Config struct {
@@ -130,7 +163,7 @@ type Cache struct {
 	storage      storage.Storage
 	substituters *substituters
 	narinfoCache NarinfoCache
-	uri          string
+	url          string
 }
 
 type NarinfoCache interface {
@@ -155,7 +188,7 @@ func New(name string, cfg *Config, app App) (*Cache, error) {
 		logger:       app.Logger().With().Str("cache", name).Logger(),
 		storage:      storage.WithPrefix(app.Storage(), filepath.Join("cache", name)),
 		narinfoCache: app.NarinfoCache(),
-		uri:          url.String(),
+		url:          url.String(),
 	}
 
 	var err error
@@ -198,7 +231,7 @@ func (c *Cache) HandleCacheInfo(w http.ResponseWriter, r *http.Request) {
 
 	info := cacheInfo{
 		Name:       c.name,
-		URI:        c.uri,
+		URI:        c.url,
 		IsPublic:   false,
 		Permission: capitalizeString(perm.String()),
 		PublicSigningKeys: []string{
@@ -215,7 +248,10 @@ func (c *Cache) HandleCacheInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *Cache) narinfoURL(hash string) string {
-	return filepath.Join("cache://"+c.name, fmt.Sprintf("%s.narinfo", hash))
+	if hash == "" {
+		return c.url
+	}
+	return filepath.Join(c.url, fmt.Sprintf("%s.narinfo", hash))
 }
 
 func (c *Cache) lookupNarinfo(ctx context.Context, hash string) (*narInfo, error) {
@@ -311,7 +347,6 @@ func (c *Cache) HandleCacheNarinfo(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-
 }
 
 func (c *Cache) HandleUploadNar(w http.ResponseWriter, r *http.Request) {
@@ -346,6 +381,8 @@ func (c *Cache) HandleUploadNar(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, r, &httputil.Error{Err: err})
 		return
 	}
+
+	metricNarUploadBytes.WithLabelValues(c.name).Observe(float64(len(data)))
 
 	c.logger.Info().Str("path", path).Int("size", len(data)).Msg("successfully uploaded nar")
 

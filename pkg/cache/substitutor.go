@@ -103,6 +103,9 @@ func (l *libstoreSubstituter) lookupNarinfo(ctx context.Context, hash string) (*
 }
 
 func (l *libstoreSubstituter) narinfoURL(hash string) string {
+	if hash == "" {
+		return l.url
+	}
 	return filepath.Join(l.url, fmt.Sprintf("%s.narinfo", hash))
 }
 
@@ -116,6 +119,7 @@ type substituter interface {
 type substituters struct {
 	substituters []substituter
 	narinfoCache NarinfoCache
+	cacheName    string
 }
 
 func newSubstituters(cfgs []ConfigSubstituter, cache *Cache) (*substituters, error) {
@@ -125,6 +129,7 @@ func newSubstituters(cfgs []ConfigSubstituter, cache *Cache) (*substituters, err
 	s := &substituters{
 		substituters: make([]substituter, len(cfgs)+1),
 		narinfoCache: cache.narinfoCache,
+		cacheName:    cache.name,
 	}
 	s.substituters[0] = cache
 
@@ -160,9 +165,12 @@ func (s *substituters) cachedLookupHash(ctx context.Context, hash string) (bool,
 		// check cache for hit
 		_, err := s.narinfoCache.Get(url)
 		if err == nil {
+			metricNarinfoCacheHits.WithLabelValues(s.cacheName, subst.narinfoURL("")).Add(1)
 			return true, nil
 		}
 	}
+
+	metricNarinfoCacheMisses.WithLabelValues(s.cacheName).Add(1)
 
 	return s.lookupHash(ctx, hash)
 }
