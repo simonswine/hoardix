@@ -1,0 +1,20 @@
+base_url: http://localhost:5000
+# define underlying storage for the cache
+storage:
+  file:
+    path: /data
+
+# map of caches with the key being the subdomain of the cache.
+caches:
+  my-cache:
+    private_key: "my-cache.localhost-1:insecure/private/key/do/not/use/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=="
+    substituters:
+      - url: "https://cache.nixos.org"
+        public_key: cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
+
+tokens:
+  - static:
+      tokens: [insecure-write-token]
+      mappings:
+        - caches: [my-cache]
+          permission: write

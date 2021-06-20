@@ -16,13 +16,17 @@
 ----
 # base url of how the cache is reached
 #
-# The subdomain api.$base_domain will be used to communicate with the cache
-# API, while every cache define in caches, will be available under its
-# subdomain.
+# Cachix will be using the subdomain api.$base_domain to communicate with the
+# API, while every cache defined in caches, will be available under its
+# subdomain. So for the cachix to be reached it is advised to create a wildcard
+# dns record pointing at this cache *.$base_domain.
 base_url: http://localhost:5000
 
-# modify listening port. default: 5000
-#listen_port: 5001
+# modify http listen port. default: 5000
+listen_port: 5000
+
+# modify metrics listen port. default:9500
+metric_listen_port: 9500
 
 # define underlying storage for the cache
 storage:
@@ -44,11 +48,11 @@ caches:
     private_key: "private-cache.cachix.my-domain.com-1:<redacted>"
 
     # public caches can be read without authentication. default: false
-    #public: false
+    public: false
 
     # priority defines the cache's priority, when looking for cached
     # derivations. default: 41
-    #priority: 30
+    priority: 41
 
     # substituters allows to define upstream caches, which should be ignored
     # while uploading derivations.
@@ -58,7 +62,24 @@ caches:
       - url: "https://cache.nixos.org"
         public_key: cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
 
-# TODO: Add tokens
+# this section shows how read and write tokens can be configured, which will
+# authorize requests.
+tokens:
+  - static:
+      tokens:
+        - insecure-write-token
+      mappings:
+        - caches:
+            - private-cache
+          permission: write
+  - static:
+      tokens:
+        - insecure-read-token-1
+        - insecure-read-token-2
+      mappings:
+        - caches:
+            - private-cache
+          permission: read
 ----
 
 === Docker
