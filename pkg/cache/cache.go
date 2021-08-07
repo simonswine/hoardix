@@ -180,7 +180,7 @@ type App interface {
 
 func New(name string, cfg *Config, app App) (*Cache, error) {
 	url := app.BaseURL()
-	url.Host = fmt.Sprintf("%s.%s:%s", name, url.Hostname(), url.Port())
+	url.Host = name + "." + url.Host
 
 	c := &Cache{
 		name:         name,
