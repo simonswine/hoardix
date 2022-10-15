@@ -386,7 +386,7 @@ func (c *Cache) HandleUploadNar(w http.ResponseWriter, r *http.Request) {
 
 	c.logger.Info().Str("path", path).Int("size", len(data)).Msg("successfully uploaded nar")
 
-	w.WriteHeader(http.StatusNoContent)
+	w.WriteHeader(http.StatusOK)
 }
 
 func (c *Cache) verifyAuthorized(minimumPermission token.Permission, w http.ResponseWriter, r *http.Request) bool {
@@ -466,7 +466,7 @@ func (c *Cache) HandleUploadNarinfo(w http.ResponseWriter, r *http.Request) {
 
 	c.logger.Info().Str("path", outputNarinfo.StorePath).Str("nar_path", outputNarinfo.URL).Msg("successfully uploaded narinfo")
 
-	w.WriteHeader(http.StatusNoContent)
+	w.WriteHeader(http.StatusOK)
 }
 
 func narPath(h *hash.Hash, cmp compression.Type) string {
