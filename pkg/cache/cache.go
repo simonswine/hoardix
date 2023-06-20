@@ -202,12 +202,13 @@ func New(name string, cfg *Config, app App) (*Cache, error) {
 }
 
 type cacheInfo struct {
-	Name              string   `json:"name"`
-	URI               string   `json:"uri"`
-	IsPublic          bool     `json:"isPublic"`
-	PublicSigningKeys []string `json:"publicSigningKeys"`
-	Permission        string   `json:"permission"`
-	GithubUsername    string   `json:"githubUsername"`
+	Name                       string   `json:"name"`
+	URI                        string   `json:"uri"`
+	IsPublic                   bool     `json:"isPublic"`
+	PublicSigningKeys          []string `json:"publicSigningKeys"`
+	Permission                 string   `json:"permission"`
+	GithubUsername             string   `json:"githubUsername"`
+	PreferredCompressionMethod string   `json:"preferredCompressionMethod"`
 }
 
 func capitalizeString(s string) string {
@@ -237,6 +238,7 @@ func (c *Cache) HandleCacheInfo(w http.ResponseWriter, r *http.Request) {
 		PublicSigningKeys: []string{
 			c.cfg.PrivateKey.PublicKey().String(),
 		},
+		PreferredCompressionMethod: "ZSTD",
 	}
 	if err := json.NewEncoder(w).Encode(&info); err != nil {
 		httputil.WriteError(w, r, &httputil.Error{
